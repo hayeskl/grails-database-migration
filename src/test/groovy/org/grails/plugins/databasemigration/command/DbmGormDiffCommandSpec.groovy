@@ -16,7 +16,11 @@
 package org.grails.plugins.databasemigration.command
 
 import grails.dev.commands.ApplicationCommand
+import grails.persistence.Entity
+import liquibase.exception.UnexpectedLiquibaseException
 import org.grails.plugins.databasemigration.DatabaseMigrationException
+
+import java.rmi.UnexpectedException
 
 class DbmGormDiffCommandSpec extends ApplicationContextDatabaseMigrationCommandSpec {
 
@@ -26,13 +30,76 @@ class DbmGormDiffCommandSpec extends ApplicationContextDatabaseMigrationCommandS
         sql.executeUpdate 'CREATE TABLE PUBLIC.author (id BIGINT AUTO_INCREMENT NOT NULL, version BIGINT NOT NULL, name VARCHAR(255) NOT NULL, CONSTRAINT authorPK PRIMARY KEY (id));'
     }
 
-    def "diffs GORM classes against a database and generates a changelog to STDOUT"() {
-        when:
+    def "suppress field validation"() {
+        when: 'an invalid option is given'
+        config.grails.plugin.databasemigration.suppressFields=['Invalid']
+        command.handle(getExecutionContext())
+        then:
+        UnexpectedLiquibaseException parseError = thrown(UnexpectedLiquibaseException)
+        parseError.message == 'Unable to parse suppressed field: Invalid'
+
+        when: 'an invalid type is given'
+        config.grails.plugin.databasemigration.suppressFields=['Invalid:field']
+        command.handle(getExecutionContext())
+        then:
+        UnexpectedLiquibaseException typeError = thrown(UnexpectedLiquibaseException)
+        typeError.cause instanceof ClassNotFoundException
+        typeError.message == 'java.lang.ClassNotFoundException: liquibase.structure.core.Invalid'
+
+        when: 'an invalid field is given'
+        config.grails.plugin.databasemigration.suppressFields=['Index:ignored']
+        command.handle(getExecutionContext())
+        then:
+        noExceptionThrown()
+    }
+
+    def "diffs GORM classes suppress nullable filed"() {
+        given: 'change author to have difference that would generate'
+            sql.executeUpdate 'ALTER TABLE PUBLIC.author MODIFY name VARCHAR(255) NULL;'
+
+        when: 'the difference is suppressed'
+            config.grails.plugin.databasemigration.suppressFields=['Column:nullable']
             command.handle(getExecutionContext())
 
-        then:
+        then: 'the difference is not included'
             def output = outputCapture.toString()
             output =~ '''
+databaseChangeLog = \\{
+
+    changeSet\\(author: ".+?", id: ".+?"\\) \\{
+        createTable\\(tableName: "book"\\) \\{
+            column\\(autoIncrement: "true", name: "id", type: "BIGINT"\\) \\{
+                constraints\\(primaryKey: "true", primaryKeyName: "bookPK"\\)
+            \\}
+
+            column\\(name: "version", type: "BIGINT"\\) \\{
+                constraints\\(nullable: "false"\\)
+            \\}
+
+            column\\(name: "author_id", type: "BIGINT"\\) \\{
+                constraints\\(nullable: "false"\\)
+            \\}
+
+            column\\(name: "title", type: "VARCHAR\\(255\\)"\\) \\{
+                constraints\\(nullable: "false"\\)
+            \\}
+        \\}
+    \\}
+
+    changeSet\\(author: ".+?", id: ".+?"\\) \\{
+        addForeignKeyConstraint\\(baseColumnNames: "author_id", baseTableName: "book", constraintName: "FK.+?", deferrable: "false", initiallyDeferred: "false", referencedColumnNames: "id", referencedTableName: "author", validate: "true"\\)
+    \\}
+\\}
+'''.trim()
+    }
+
+    def "diffs GORM classes against a database and generates a changelog to STDOUT"() {
+        when:
+        command.handle(getExecutionContext())
+
+        then:
+        def output = outputCapture.toString()
+        output =~ '''
 databaseChangeLog = \\{
 
     changeSet\\(author: ".+?", id: ".+?"\\) \\{
