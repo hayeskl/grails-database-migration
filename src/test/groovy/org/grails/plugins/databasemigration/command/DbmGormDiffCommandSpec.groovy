@@ -54,43 +54,42 @@ class DbmGormDiffCommandSpec extends ApplicationContextDatabaseMigrationCommandS
     }
 
     def "diffs GORM classes suppress nullable filed"() {
-        given: 'change author to have difference that would generate'
-            sql.executeUpdate 'ALTER TABLE PUBLIC.author MODIFY name VARCHAR(255) NULL;'
+        given: 'generate the book table with a nullabble author'
+            sql.executeUpdate'CREATE TABLE PUBLIC.book (id BIGINT AUTO_INCREMENT NOT NULL, version BIGINT NOT NULL, author_id BIGINT NULL, title VARCHAR(255) NOT NULL, CONSTRAINT bookPK PRIMARY KEY (id));'
 
-        when: 'the difference is suppressed'
-            config.grails.plugin.databasemigration.suppressFields=['Column:nullable']
+        when: 'generate the difference'
             command.handle(getExecutionContext())
 
-        then: 'the difference is not included'
-            def output = outputCapture.toString()
-            output =~ '''
+        then: 'the not nullable constraint added'
+            def output = extractOutput(outputCapture).replaceAll(/\s/,"")
+            output ==~ '''
 databaseChangeLog = \\{
-
-    changeSet\\(author: ".+?", id: ".+?"\\) \\{
-        createTable\\(tableName: "book"\\) \\{
-            column\\(autoIncrement: "true", name: "id", type: "BIGINT"\\) \\{
-                constraints\\(primaryKey: "true", primaryKeyName: "bookPK"\\)
-            \\}
-
-            column\\(name: "version", type: "BIGINT"\\) \\{
-                constraints\\(nullable: "false"\\)
-            \\}
-
-            column\\(name: "author_id", type: "BIGINT"\\) \\{
-                constraints\\(nullable: "false"\\)
-            \\}
-
-            column\\(name: "title", type: "VARCHAR\\(255\\)"\\) \\{
-                constraints\\(nullable: "false"\\)
-            \\}
-        \\}
-    \\}
 
     changeSet\\(author: ".+?", id: ".+?"\\) \\{
         addForeignKeyConstraint\\(baseColumnNames: "author_id", baseTableName: "book", constraintName: "FK.+?", deferrable: "false", initiallyDeferred: "false", referencedColumnNames: "id", referencedTableName: "author", validate: "true"\\)
     \\}
+    
+    changeSet\\(author: ".+?", id: ".+?"\\) \\{
+        addNotNullConstraint\\(columnDataType: "bigint", columnName: "author_id", tableName: "book", validate: "true"\\)
+    \\}
 \\}
-'''.trim()
+'''.replaceAll(/\s/,"")
+
+        when: 'nullable constraint is suppressed'
+            config.grails.plugin.databasemigration.suppressFields=['Column:nullable']
+            command.handle(getExecutionContext())
+
+        then: 'only the foreign key difference is generated'
+        def suppressed = extractOutput(outputCapture).replaceAll(/\s/,"")
+        suppressed ==~ '''
+databaseChangeLog = \\{
+
+    changeSet\\(author: ".+?", id: ".+?"\\) \\{
+        addForeignKeyConstraint\\(baseColumnNames: "author_id", baseTableName: "book", constraintName: "FK.+?", deferrable: "false", initiallyDeferred: "false", referencedColumnNames: "id", referencedTableName: "author", validate: "true"\\)
+    \\}    
+\\}
+'''.replaceAll(/\s/,"")
+
     }
 
     def "diffs GORM classes against a database and generates a changelog to STDOUT"() {
@@ -98,14 +97,14 @@ databaseChangeLog = \\{
         command.handle(getExecutionContext())
 
         then:
-        def output = outputCapture.toString()
-        output =~ '''
+            def output = extractOutput(outputCapture).replaceAll(/\s/,"")
+            output ==~ '''
 databaseChangeLog = \\{
 
     changeSet\\(author: ".+?", id: ".+?"\\) \\{
         createTable\\(tableName: "book"\\) \\{
             column\\(autoIncrement: "true", name: "id", type: "BIGINT"\\) \\{
-                constraints\\(primaryKey: "true", primaryKeyName: "bookPK"\\)
+                constraints\\(nullable: "false", primaryKey: "true", primaryKeyName: "bookPK"\\)
             \\}
 
             column\\(name: "version", type: "BIGINT"\\) \\{
@@ -126,7 +125,7 @@ databaseChangeLog = \\{
         addForeignKeyConstraint\\(baseColumnNames: "author_id", baseTableName: "book", constraintName: "FK.+?", deferrable: "false", initiallyDeferred: "false", referencedColumnNames: "id", referencedTableName: "author", validate: "true"\\)
     \\}
 \\}
-'''.trim()
+'''.replaceAll(/\s/,"")
     }
 
     def "diffs GORM classes against a database and generates a changelog to a file given as arguments"() {
@@ -137,14 +136,14 @@ databaseChangeLog = \\{
             command.handle(getExecutionContext(filename))
 
         then:
-            def output = new File(changeLogLocation, filename).text
+            def output = new File(changeLogLocation, filename).text?.replaceAll(/\s/,"")
             output =~ '''
 databaseChangeLog = \\{
 
     changeSet\\(author: ".+?", id: ".+?"\\) \\{
         createTable\\(tableName: "book"\\) \\{
             column\\(autoIncrement: "true", name: "id", type: "BIGINT"\\) \\{
-                constraints\\(primaryKey: "true", primaryKeyName: "bookPK"\\)
+                constraints\\(nullable:"false", primaryKey: "true", primaryKeyName: "bookPK"\\)
             \\}
 
             column\\(name: "version", type: "BIGINT"\\) \\{
@@ -165,7 +164,7 @@ databaseChangeLog = \\{
         addForeignKeyConstraint\\(baseColumnNames: "author_id", baseTableName: "book", constraintName: "FK.+?", deferrable: "false", initiallyDeferred: "false", referencedColumnNames: "id", referencedTableName: "author", validate: "true"\\)
     \\}
 \\}
-'''.trim()
+'''.replaceAll(/\s/,"")
     }
 
     def "an error occurs if changeLogFile already exists"() {
