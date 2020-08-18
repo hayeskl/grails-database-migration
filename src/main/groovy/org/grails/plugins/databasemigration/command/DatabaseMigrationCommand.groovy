@@ -58,6 +58,7 @@ import liquibase.util.file.FilenameUtils
 import org.grails.build.parsing.CommandLine
 import org.grails.plugins.databasemigration.DatabaseMigrationException
 import org.grails.plugins.databasemigration.NoopVisitor
+import org.grails.plugins.databasemigration.liquibase.GrailsClassLoaderResourceAccessor
 import org.grails.plugins.databasemigration.liquibase.GroovyDiffToChangeLogCommand
 import org.grails.plugins.databasemigration.liquibase.GroovyGenerateChangeLogCommand
 
@@ -215,7 +216,7 @@ trait DatabaseMigrationCommand {
                 null,
                 null,
                 null,
-                new ClassLoaderResourceAccessor(Thread.currentThread().contextClassLoader)
+                new GrailsClassLoaderResourceAccessor(Thread.currentThread().contextClassLoader)
         )
         configureDatabase(database)
         return database
